@@ -1,0 +1,95 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(rstanarm)
+library(bayestestR)
+library(bayesplot)
+library(parameters)
+library(magrittr)
+```
+# We will look at daily bike rentals from citibike, a bike share program in New York City, over the pre-pandemic summer of 2019 and the pandemic summer of 2020. 
+```{r get data}
+citibike <- read_csv("citibike.csv")
+# Data aggregated from https://www.citibikenyc.com/system-data
+
+# the code below will make sure that the days of the week go in order rather than alphabetically,
+# and that year is treated not as a number but as a categorical variable
+citibike <- citibike %>%
+  mutate(day_of_the_week = factor(day_of_the_week, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")),
+         year = factor(year))
+
+# A dataset with only 2019 data and one with only 2020 data
+
+citibike2019 <- citibike %>%
+  filter(year == "2019")
+
+citibike2020 <- citibike %>%
+  filter(year == "2020")
+
+citibike %>% glimpse()
+
+```
+```{r plot data}
+citibike %>%
+  ggplot(aes(day, rides, colour = year)) + 
+  geom_point() +
+  geom_line()
+```
+# From the plot, it looks like there might be a trend during the week, a linear increase during the summer, and lower use in 2020.
+
+## 2020 model fit
+
+Now we will look at 2020 only. We will include a `day` variable, which is day of the year, and also separate intercepts for the day of the week, using a hierarchical model. 
+
+```{r 2020 only}
+citi_hier_2020 <- stan_glmer(rides ~ day + (1 | day_of_the_week) , data = citibike2020, control = list(adapt_delta = 0.999))
+
+```{r mcmc diagnostics}
+ citi_hier_2020 %>%
+  as.array() %>%
+  rstan::monitor(digits = 4)
+```
+```{r}
+launch_shinystan(citi_hier_2020)
+```
+```{r}
+pp_check(citi_hier_2020)
+```
+# The pp_check is a bit better for 2020 than it was in 2019, but the bump in the left doesn't seem to be in any of the simulationed datasets.I suspect we need to incorporate weather into the model.
+
+## Look at results
+
+# Let's take a look at the distribution of the day of the week specific changes in the intercept. The `regex_pars = "b\\["` argument below is a pattern designed to pick out just the parameters we want.
+
+```{r}
+plot(citi_hier_2020, plotfun = "areas_ridges", regex_pars = "b\\[")
+```
+
+# Pretty clearly Saturday and Sunday show a shift towards fewer rides, while Friday is a bit higher than the other weekdays. 
+# Let's take a quick look at the numeric results. I want to use an interval of $(-50, 50)$ for the ROPE.
+
+```{r}
+model_parameters(citi_hier_2020, ci = 0.9, rope_ci = 0.9, rope_range = c(-50, 50))
+```
+
+```{r}
+model_parameters(citi_hier_2020, ci = 0.9, rope_ci = 0.9, rope_range = c(-50, 50), effects = "random", group_level = TRUE)
+```
+# You can see that from the `pd` column that we are most confident that Saturday, Sunday, and Monday are to one side of zero.
+
+## A direct probability calculation
+
+```{r}
+citi_hier_2020 %>%
+  as.data.frame() %>%
+  names()
+```
+
+```{r}
+citi_hier_2020 %>%
+  as.data.frame() %$%
+  mean(`b[(Intercept) day_of_the_week:Sun]` < `b[(Intercept) day_of_the_week:Mon]`)
+```
+# This is the probability that summer Sundays in 2020 had fewer rides than mondays. Notice how different this is from 2019.
