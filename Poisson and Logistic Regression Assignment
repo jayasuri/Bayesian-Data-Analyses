@@ -1,0 +1,262 @@
+---
+title: "Poisson and Logistic Regression Assignment"
+author: "Akash Jayasuri"
+output: html_notebook
+---
+
+
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(rstanarm)
+library(bayesplot)
+library(bayestestR)
+library(parameters)
+library(magrittr)
+library(brms)
+library(skimr)
+library(broom.mixed)
+library(rethinking)
+
+options(mc.cores = parallel::detectCores())
+```
+
+# Oceanic Tool Complexity
+
+
+
+For an example of Poisson regression, we will use a dataset on tool use in historic societies. McElreath, in *Statistical Rethinking*, describes the data like this: 
+
+"The island societies of Oceania provide a natural experiment in technological evolution. Different historical island populations possessed tool kits of different size. These kits include fish hooks, axes, boats, hand plows, and many other types of tools. A number of theories predict that larger populations will both develop and sustain more complex tool kits. So the natural variation in population size induced by natural variation in island size in Oceania provides a natural experiment to test these ideas. It’s also suggested that contact rates among populations effectively increase population size, as it’s relevant to technological evolution. So variation in contact rates among Oceanic societies is also relevant."
+
+![](Kline.png)
+
+## Data
+
+The data is found in the data frame `Kline` in the `rethinking` package. Unlike other datasets in other packages, this one must first be "exposed" by using the `data()` function.
+
+```{r Kline data}
+data(Kline)
+
+Kline
+```
+
+You can see it's a very small dataset.
+
+For convenience, let's add a variable for the log base 10 of the population, and let's recode the contact variable.
+
+```{r data wrangling}
+tools <- Kline %>%
+  mutate(log_pop = log10(population),
+         contact_high = as.integer(contact == "high")
+         )
+
+```
+
+And here's a plot
+
+```{r tools plot}
+tools %>%
+  ggplot(aes(population, total_tools, colour = contact)) +
+  geom_point() +
+  scale_x_log10() +
+  theme_bw()
+
+```
+
+## Model
+
+
+We will consider a model with predictor variable of the log10 of the population size (more people implies more tools to be found by archeologists), contact, meaning low or high contact rate with other islands, and their interaction. That is, use `total_tools` as the outcome, and include `log_pop`, `contact_high` and their interaction as predictors. **Don't forget the `family` argument!**
+
+This model requires many iterations for the MCMC chains.
+
+```{r Kline model}
+tools_fit1 <- stan_glm(total_tools ~ (log_pop = log10(population)) + (contact_high = as.integer(contact == "high")), data = Kline, family = poisson , chains = 8, iter = 10000) #MY CODE
+```
+
+```{r check draw size}
+tools_fit1 %>%
+  as.array() %>%
+  rstan::monitor(digits = 4) 
+```
+
+
+
+```{r check fit}
+launch_shinystan(tools_fit1)
+```
+(Remember you have to close the `shinystan` window before you can proceed in this window.)
+
+
+## Posteriors
+
+```{r posteriors tools}
+
+plot(tools_fit1, plotfun = "areas", prob = .9)
+
+plot(tools_fit1, plotfun = "intervals") # the inner line is the 50% credible interval, while the outer line is the 90% credible interval
+
+describe_posterior(tools_fit1, prob = .9, centrality = "mean")
+ 
+```
+
+To see the posteriors on the transformed scale, use the `transformation` argument.
+
+
+```{r transformed posteriors tools}
+
+plot(tools_fit1, plotfun = "areas", prob = .9, pars = c("log_pop", "contact_high")) +
+  geom_vline(xintercept = 1.0, lty = 3, color = "gray") #MY CODE
+
+plot(tools_fit1, plotfun = "intervals", pars = c("log_pop", "contact_high") ) +
+  geom_vline(xintercept = 1.0, lty = 3, color = "gray") #MY CODE
+# the inner line is the 50% credible interval, while the outer line is the 90% credible interval
+```
+
+It looks like there is a very clear population effect, but the role of contact is much less compelling. Notice that because of the long tail on the posterior of `contact_high`, the plot of the transformed posteriors is not very useful.
+
+We will return to this analysis next week.
+
+
+
+
+
+# Survival of the Titanic Disaster
+
+## Data
+
+We will use data from the Titanic disaster for this assignment.
+
+First, we'll need the data, which we can load from a website at Vanderbilt University. There is a description of the dataset at (https://hbiostat.org/data/repo/titanic.html). You can find everything you might ever want to know about the Titanic at (https://www.encyclopedia-titanica.org).
+
+
+```{r get Titanic data}
+
+titanic <- read_csv("https://hbiostat.org/data/repo/titanic3.csv")
+
+titanic %>% glimpse()
+```
+
+```{r add variables}
+
+titanic <- titanic %>%
+  mutate(
+    child = case_when(is.na(age) ~ FALSE,
+                      age <= 14 ~ TRUE,
+                      TRUE ~ FALSE),
+    alone = case_when(sibsp > 0 ~ FALSE,
+                      parch > 0 ~ FALSE,
+                      TRUE ~ TRUE),
+    pclass = as_factor(pclass)
+  )
+
+titanic %>% count(pclass, sex, child, alone, survived) %>% print(n = Inf)
+
+```
+
+We can get a sense of the data with a mosaic plot. The light color represents survival, the dark color death.
+
+```{r mosaic}
+
+mosaicplot(~ sex + child + pclass + survived, data = titanic, color = TRUE)
+
+```
+
+## Model
+
+
+Now we can fit a Bayesian logistic regression model. Use `survived` as the outcome, with predictorvariables of `pclass`, `sex`, `child`, and `alone`.
+**Do not forget the `family` argument.**
+
+```{r titanic fit}
+
+titanic_fit1 <- stan_glm( survived * pclass + sex + child + alone,
+                          data = titanic,
+                          chains = 8, 
+                          family = binomial,
+                        iter = 5000
+                        ) #MY CODE
+```
+
+
+```{r check draw size titanci}
+tools_fit1 %>%
+  as.array() %>%
+  rstan::monitor(digits = 4) 
+```
+
+
+
+```{r check convergence}
+launch_shinystan(titanic_fit1)
+```
+
+```{r titanic posteriors 1}
+
+
+
+plot(titanic_fit1, plotfun = "areas", prob = .9)
+
+plot(titanic_fit1, plotfun = "intervals") # the inner line is the 50% credible interval, while the outer line is the 90% credible interval
+
+describe_posterior(titanic_fit1, centrality = "mean", ci = 0.9) 
+ 
+```
+
+ 
+ 
+These coefficients are on the log odds-ratio scale; 0 corresponds to no effect, negative numbers to reduced odds of survival, and positive numbers increased odds of survival.
+ 
+ We can look at the coefficients on the odds ratio scale (i.e., not on the *log* odds ratio scale) by adding a `transform = "exp"` argument. Since the `(Intercept)` term is much larger and not that meaningful, we will specify to parameters to show. On the odds ratio scale, 1 corresponds to no effect, 1/2 would correspond to cutting the odds in half, and 2 would correspond to doubling the odds.
+ 
+
+ 
+```{r titanic posteriors 2}
+ 
+plot(titanic_fit1, 
+     plotfun = "areas", 
+     prob = .9, 
+     pars = c("pclass2", "pclass3", "sexmale", "childTRUE", "aloneTRUE"),
+     transformations = "exp" 
+)
+     
+```     
+
+On this scale it is really apparent that the odds ratio for children was quite high, but there is also a lot of uncertainty as to just how high.
+
+
+## Predictions
+
+As a preview about predictions, let's finish with our worst prediction.
+Who died despite high predicted survival?
+
+```{r died anyway}
+
+titanic %>% 
+  mutate(prob = fitted(titanic_fit1, type = "response"))  %>%
+  filter(prob > .9, survived == 0) %>%
+  glimpse()
+```
+
+You can read about Loraine Allison at (https://www.encyclopedia-titanica.org/titanic-victim/loraine-allison.html).
+
+
+```{r survived anyway 1}
+titanic %>% 
+  mutate(prob = fitted(titanic_fit1, type = "response"))  %>%
+  filter(prob < .1, survived == 1) %>%
+  glimpse()
+```
+
+There are a lot, so we can just summarize them. You can see that they were all men travelling third class.
+
+```{r survived anyway 2}
+titanic %>% 
+  mutate(prob = fitted(titanic_fit1, type = "response"))  %>%
+  filter(prob < .1, survived == 1) %>%
+  count(sex, alone, child, pclass)
+```
+
+We will not be predicting whether two people could float on a single door
