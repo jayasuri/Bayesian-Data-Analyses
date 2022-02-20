@@ -1,0 +1,276 @@
+---
+title: "BDA Final Project"
+author: "Akash Jayasuri"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(rstanarm)
+library(brms)
+library(bayesplot)
+library(bayestestR)
+library(tidybayes)
+library(parameters)
+library(patchwork)
+library(magrittr)
+library(lubridate)
+library(broom)
+library(broom.mixed)
+library(ggbeeswarm)
+library(loo)
+library(emmeans)
+library(gridExtra)
+library(knitr)
+
+options(mc.cores = parallel::detectCores())
+set.seed(1766)
+```
+
+```{r DATA DESCRIPTION}
+# The data set describes 721 Pokemon and all of their stats including their number, name, type(s), HP, attack, and so on. It was acquired from kaggle. I grew up playing and watching Pokemon and I still thoroughly enjoy it to this day so I thought it would be nice to perform an analysis on it.
+```
+
+```{r DATASET}
+Pokemon <- read.csv("/cloud/project/Pokemon.csv", header=TRUE)
+(head(Pokemon))
+```
+
+```{r POKEMON PRIMARY TYPES (List of Pokemon types. These determine weakness/resistance to attacks)}
+Pokemon$Type.1 <- as.factor(Pokemon$Type.1)
+levels(Pokemon$Type.1)
+```
+```{r POKEMON SECONDARY TYPES (Some Pokemon are dual type and have two types)}
+ 
+Pokemon$Type.2 <- as.factor(Pokemon$Type.2)
+levels(Pokemon$Type.2)
+```
+# there's an empty cell in Secondary Types because Pokemon may either have one or two types, so it's for Pokemon with only one type
+
+```{r PRIMARY TYPE GRAPH}
+ggplot(Pokemon, aes(x=fct_infreq(Type.1))) + 
+  geom_bar() +
+  labs(x="Type 1", y="Frequency",
+       title="How Many Pokémon of Each Primary Type Are There?") +
+  theme_bw() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+```{r SECONDARY TYPE GRAPH}
+ggplot(Pokemon, aes(x=fct_infreq(Type.2))) +
+  geom_bar() +
+  labs(x="Type 2", y="Frequency",
+       title="How Many Pokémon of Each Secondary Type Are There?") +
+  theme_bw() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+# According to this bar chart, most Pokemon only have one type. 
+
+```{r CONTINGENCY TABLE}
+# Numnber of each type of Pokemon
+types <- Pokemon %>%
+  group_by(Type.1, Type.2) %>%
+  summarise(count=n()) 
+
+# Contingency table of Type.1 and Type.2
+ ggplot(types, aes(x = Type.1, y = Type.2)) +
+  geom_tile(aes(fill = count), show.legend = FALSE) +
+  geom_text(aes(label=count)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Type 1", y = "Type 2",
+       title = "Number of Pokémon For Each Type Combination") +   
+  scale_fill_gradient(low = "white", high = "red") 
+```
+```{r HISTOGRAMS}
+# Histogram of HP
+p1 <- ggplot(Pokemon, aes(x = HP)) +
+  geom_histogram(binwidth = 4) + 
+  labs(x = "HP", y = "Frequency") +
+  theme_bw()
+
+# Histogram of Attack
+p2 <- ggplot(Pokemon, aes(x = Attack)) +
+  geom_histogram(binwidth = 4) + 
+  labs(x = "Attack", y = "Frequency") +
+  theme_bw()
+
+# Histogram of Defense
+p3 <- ggplot(Pokemon, aes(x = Defense)) +
+  geom_histogram(binwidth = 4) + 
+  labs(x = "Defense", y = "Frequency") +
+  theme_bw()
+
+# Histogram of Special Attack
+p4 <- ggplot(Pokemon, aes(x = Sp..Atk)) +
+  geom_histogram(binwidth = 4) + 
+  labs(x = "Special Attack", y = "Frequency") +
+  theme_bw()
+
+# Histogram of Special Defense
+p5 <- ggplot(Pokemon, aes( x =Sp..Def)) +
+  geom_histogram(binwidth = 4) + 
+  labs(x = "Special Defense", y = "Frequency") +
+  theme_bw()
+
+# Histogram of Speed
+p6 <- ggplot(Pokemon, aes(x=Speed)) +
+  geom_histogram(binwidth = 4) + 
+  labs(x = "Speed", y = "Frequency") +
+  theme_bw()
+
+# Histogram of Total 
+p7 <- ggplot(Pokemon, aes(x = Total)) +
+  geom_histogram(binwidth = 4) + 
+  labs(x = "Total", y = "Frequency") +
+  theme_bw()
+
+# Subplot with all the histograms 
+grid.arrange(p1, p2, p3, p4, p5, p6, p7,
+             layout_matrix = cbind(c(1,4,7), c(2,5,7), c(3,6,7)))
+```
+```{r DENSITY PLOTS}
+# Density plot of HP
+p8 <- ggplot(Pokemon, aes(x = HP, fill = Legendary)) +
+  geom_density(alpha = 0.5) +
+  labs(x = "HP", y ="Density") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Density plot of Attack
+p9 <- ggplot(Pokemon, aes(x = Attack, fill = Legendary)) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Attack", y = "Density") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Density plot of Defense
+p10 <- ggplot(Pokemon, aes(x = Defense, fill = Legendary)) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Defense", y = "Density") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Density plot of Special Attack
+p11 <- ggplot(Pokemon, aes(x = Sp..Atk, fill = Legendary)) +
+  geom_density(alpha =0.5) +
+  labs(x = "Special Attack", y = "Density") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Density plot of Special Defense
+p12 <- ggplot(Pokemon, aes(x = Sp..Def, fill = Legendary)) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Special Defense", y = "Density") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Density plot of Speed
+p13 <- ggplot(Pokemon, aes(x = Speed, fill = Legendary)) +
+  geom_density(alpha = 0.5) +
+  labs(x = "Speed", y = "Density") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# Density plot of Total
+p14 <- ggplot(Pokemon, aes(x = Total, fill = Legendary)) +
+  geom_density(alpha = 0.5) +
+  theme_bw() +
+  labs(x = "Total", y = "Density") 
+
+# Subplot with all the density plots 
+grid.arrange(p8, p9, p10, p11, p12, p13, p14,
+             layout_matrix = cbind(c(1,4,7), c(2,5,7), c(3,6,7)))
+```
+# According to the density plots, legendary Pokemon have much greater stats than normal Pokemon (naturally haha)
+```{r RENAME}
+HP <- Pokemon$HP
+Attack <- Pokemon$Attack
+Defense <- Pokemon$Defense
+```
+
+```{r FIRST FIT}
+fit <- stan_glm(
+  HP ~ Attack + Defense, 
+         data = Pokemon, 
+         chains = 8, 
+         iter = 2000)
+```
+
+```{r CHECK FOR NUMBER OF DRAWS}
+fit %>%
+  as.array() %>%
+  rstan::monitor(digits = 4)
+```
+
+
+```{r LOO}
+loo(fit)
+```
+
+
+```{r TRACE PLOT}
+plot(fit, plotfun = "trace", pars = "Attack", "Defense")
+```
+
+```{r POSTERIOR PREDICTIVE CHECK}
+pp_check(fit)
+```
+
+```{r POSTERIORS}
+describe_posterior(fit, centrality = "Mean", ci = .9)
+```
+
+
+# the mean of the posterior for Attack is 0.31 and the mean for the posterior for Defense is 0.05
+# the 90% credible interval for Attack is [0.26, 0.36] and [0.01, 0.10] for Defense
+
+```{r POSTERIOR DENSITY}
+plot(fit, plotfun = "dens", pars = "Attack", "Defense")
+```
+
+```{r PREDICTION}
+#Prediction Data Frame
+data_for_prediction <-
+  tibble(Attack = 1, Defense = 2, group = "C")
+
+# Mean of Posterior Predictive Distribution
+fit %>%
+  posterior_predict(newdata = data_for_prediction) %>%
+  colMeans()
+```
+
+```{r PREDICTIVE INTERVAL}
+# 90% Predictive Interval for the New Observation
+fit %>%
+  predictive_interval(newdata = data_for_prediction)
+```
+
+```{r SECOND FIT}
+ID <- Pokemon$X.
+fit2 <- stan_glmer(HP ~ Attack + (Attack | ID ),  
+         data = Pokemon,
+         chains = 4, 
+         iter = 500,
+         family = poisson
+         )
+```
+#i chose the number of chains and iterationsfor the sake of the knitting process since anything higher would take too long to run
+```{r MCMC DIAGNOSTICS}
+
+fit2 %>%
+  as.array() %>%
+  rstan::monitor(digits = 4)
+```
+
+```{r POSTERIOR PREDICTIVE CHECK 2}
+pp_check(fit2)
+```
+
+
+### Honor Pledge
+
+On my honor, I have neither received nor given any unauthorized assistance on this project.
+
+Akash Jayasuri
