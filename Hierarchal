@@ -1,0 +1,82 @@
+---
+title: "Second R Homework"
+author: "AKASH JAYASURI"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(rstanarm)
+library(bayestestR)
+library(bayesplot)
+
+library(lme4)
+```
+
+We will look at the `sleepstudy` data frame. You can learn more about it with `?sleepstudy`, but the basics are that 18 subjects were allowed only 3 hours of sleep a night. Their reaction times were measured each day for 10 days.
+
+First a summary of the data frame, then a quick look at all of the data at once, followed by separate plots for each subject.
+
+```{r first look}
+summary(sleepstudy)
+
+sleepstudy %>%
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point() + 
+  geom_smooth()
+
+sleepstudy %>%
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point() + 
+  geom_smooth() + 
+  facet_wrap(~ Subject)
+
+```
+
+```{r non-hierarchical}
+
+sleep1 <- stan_glm(  Days ~ Reaction    ,  data = sleepstudy)
+  
+```  
+
+```{r pp sleep1}
+pp_check(sleep1)
+
+```
+
+It fits okay, but clearly there are some issues.
+
+```{r hierarchical}
+
+sleep2 <- stan_glmer(   Days ~ Reaction | Subject   ,  data = sleepstudy)
+
+```
+
+```{r interactive check}
+# launch_shinystan(sleep2) 
+```
+
+```{r plots sleep2}
+pp_check(sleep2)
+
+plot(sleep2, plotfun = "areas", pars = "Days", prob = 0.9)
+plot(sleep2, plotfun = "areas", pars = "(Intercept)", prob = 0.9)
+plot(sleep2, plotfun = "areas", pars = "sigma", prob = 0.9)
+
+
+
+plot(sleep2, plotfun = "pairs", pars = c("Days", "(Intercept)", "sigma"))
+
+
+posterior_vs_prior(sleep2, pars = c("Days", "sigma"))
+
+
+```
+
+```{r summary}
+summary(sleep2)
+```
+
+```{r credible interval}
+hdi(sleep2, ci = .9)
+```
